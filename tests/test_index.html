@@ -1,0 +1,144 @@
+import pytest
+import re
+from bs4 import BeautifulSoup
+
+# --- HTML Content Fixture ---
+
+HTML_CONTENT = """
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dark Green Text</title>
+    <!--
+        CSS styles are embedded here to modify the default text color.
+        We apply 'color: darkgreen;' to the body element to ensure all
+        default text within the page displays in the desired hue.
+    -->
+    <style>
+        /*
+         * Set the default text color for the entire page body to dark green.
+         * 'darkgreen' is a standard CSS keyword representing a deep, rich green.
+         */
+        body {
+            color: darkgreen;
+            font-family: Arial, sans-serif;
+            margin: 20px;
+        }
+
+        /* Ensure headings explicitly follow the dark green style */
+        h1, h2, h3, h4, h5, h6 {
+            color: darkgreen;
+        }
+    </style>
+</head>
+<body>
+    <h1>Application Header</h1>
+    <p>
+        This content is now rendered in dark green, fulfilling the modification request.
+        The CSS rule applied to the `body` element ensures text color consistency
+        across the primary elements of the page.
+    </p>
+    <p>
+        Example of various text elements: <strong>Bold Text</strong> and <em>Italic Text</em>.
+    </p>
+    <ul>
+        <li>List item 1</li>
+        <li>List item 2</li>
+    </ul>
+</body>
+</html>
+"""
+
+@pytest.fixture(scope="module")
+def html_soup():
+    """Fixture to parse the HTML content using BeautifulSoup."""
+    return BeautifulSoup(HTML_CONTENT, 'html.parser')
+
+@pytest.fixture(scope="module")
+def css_styles(html_soup):
+    """Fixture to extract the CSS content from the <style> tag."""
+    style_tag = html_soup.find('style')
+    if style_tag:
+        return style_tag.string.strip()
+    return ""
+
+# --- Metadata and Structure Tests (Sanity Check) ---
+
+def test_document_has_correct_title(html_soup):
+    """Verify the document title is set correctly."""
+    assert html_soup.title.string == "Dark Green Text"
+
+def test_html_tag_has_language_attribute(html_soup):
+    """Verify the primary HTML tag specifies the language."""
+    assert html_soup.html.get('lang') == 'en'
+
+def test_charset_is_utf8(html_soup):
+    """Verify the character set is defined as UTF-8."""
+    meta_charset = html_soup.find('meta', charset=True)
+    assert meta_charset is not None
+    assert meta_charset['charset'].lower() == 'utf-8'
+
+# --- CSS Implementation Tests (Core Intent) ---
+
+def test_css_body_selector_applies_darkgreen_color(css_styles):
+    """
+    Happy Path: Verify the critical CSS rule for the body element exists
+    to set the default text color to darkgreen.
+    """
+    # Use regex to robustly find 'body {' followed by 'color: darkgreen;'
+    pattern = re.compile(r'body\s*\{.*?color:\s*darkgreen\s*;', re.DOTALL | re.IGNORECASE)
+    assert pattern.search(css_styles) is not None, "CSS rule 'body { color: darkgreen; }' is missing or incorrect."
+
+def test_css_body_selector_includes_font_family(css_styles):
+    """Verify that body styling includes font-family as a secondary style."""
+    pattern = re.compile(r'body\s*\{.*?font-family:\s*Arial,\s*sans-serif\s*;', re.DOTALL | re.IGNORECASE)
+    assert pattern.search(css_styles) is not None, "CSS rule 'body' does not include the specified font-family."
+
+def test_css_explicit_heading_rule_is_present(css_styles):
+    """
+    Verify the explicit CSS rule targeting all headings (H1-H6)
+    for color: darkgreen is present (Defensive Styling).
+    """
+    # Check for the multi-selector rule
+    pattern = re.compile(r'h1,\s*h2,\s*h3,\s*h4,\s*h5,\s*h6\s*\{.*?color:\s*darkgreen\s*;', re.DOTALL | re.IGNORECASE)
+    assert pattern.search(css_styles) is not None, "Explicit heading color rule is missing."
+
+def test_css_has_no_misspelled_color_value(css_styles):
+    """Edge Case: Ensure common misspelling errors are avoided (e.g., 'dark-green')."""
+    assert "dark-green" not in css_styles.lower()
+    assert "darkgreen" in css_styles.lower()
+
+# --- Content and Element Structure Tests (Inheritance Proxy) ---
+
+def test_h1_header_is_present(html_soup):
+    """Verify the main header element (H1) exists and contains content."""
+    h1 = html_soup.find('h1')
+    assert h1 is not None
+    assert "Application Header" in h1.text.strip()
+
+def test_paragraph_content_exists(html_soup):
+    """Verify that general paragraph text exists, relying on body inheritance."""
+    paragraphs = html_soup.find_all('p')
+    assert len(paragraphs) >= 2
+    assert "rendered in dark green" in paragraphs[0].text
+
+def test_nested_strong_element_exists(html_soup):
+    """Verify the <strong> tag exists, which relies on color inheritance from its parent paragraph."""
+    strong_tag = html_soup.find('strong')
+    assert strong_tag is not None
+    assert strong_tag.text.strip() == "Bold Text"
+
+def test_nested_em_element_exists(html_soup):
+    """Verify the <em> tag exists, which relies on color inheritance."""
+    em_tag = html_soup.find('em')
+    assert em_tag is not None
+    assert em_tag.text.strip() == "Italic Text"
+
+def test_list_items_are_present(html_soup):
+    """Verify list items exist, ensuring color inheritance works for list elements."""
+    list_items = html_soup.find_all('li')
+    assert len(list_items) == 2
+    assert "List item 1" in list_items[0].text
+    assert "List item 2" in list_items[1].text
