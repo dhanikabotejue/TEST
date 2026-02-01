@@ -1,0 +1,133 @@
+import pytest
+import re
+from bs4 import BeautifulSoup
+
+# The HTML content provided in the prompt, stored as a constant
+HTML_CONTENT = """
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Page with Black Background</title>
+    
+    <!-- 
+    Internal styles block. 
+    Sets the background color of the body element to black for the entire page.
+    Also sets the default text color to white for readability contrast.
+    -->
+    <style>
+        body {
+            /* Sets the background color to pure black */
+            background-color: black;
+            /* Sets the default text color to white for contrast against the black background */
+            color: white;
+            margin: 0;
+            padding: 20px;
+            font-family: Arial, sans-serif;
+        }
+    </style>
+</head>
+<body>
+    <!-- Content starts here -->
+    <h1>Hello World</h1>
+    <p>The background of this document has been modified to black, ensuring high contrast for the text.</p>
+</body>
+</html>
+"""
+
+@pytest.fixture(scope="module")
+def html_soup():
+    """Provides a BeautifulSoup object for parsing the HTML content."""
+    return BeautifulSoup(HTML_CONTENT, 'html.parser')
+
+@pytest.fixture(scope="module")
+def html_string():
+    """Provides the raw HTML content string."""
+    return HTML_CONTENT
+
+# --- Structural and Content Tests ---
+
+def test_document_is_well_formed(html_soup):
+    """Ensures the HTML document is valid, starts with <!DOCTYPE html> and has core tags."""
+    assert html_soup.html is not None
+    assert html_soup.head is not None
+    assert html_soup.body is not None
+    assert 'html' in str(html_soup).lower()
+    
+def test_page_title_is_correct(html_soup):
+    """Verifies the content of the <title> tag."""
+    title_tag = html_soup.find('title')
+    assert title_tag is not None
+    assert title_tag.text == 'Page with Black Background'
+
+def test_page_contains_expected_content_elements(html_soup):
+    """Verifies the presence and content of the H1 and P content tags."""
+    h1 = html_soup.find('h1')
+    p = html_soup.find('p')
+    assert h1 is not None
+    assert h1.text == 'Hello World'
+    assert p is not None
+    assert 'black background' in p.text.lower()
+    
+# --- Style Verification Tests (Intent Fulfillment) ---
+
+def test_style_block_is_present(html_soup):
+    """Checks that the internal style block (<style>) exists in the <head>."""
+    style_tag = html_soup.head.find('style')
+    assert style_tag is not None
+
+def get_body_css_rules(html_soup):
+    """Helper function to extract clean CSS content for body selector."""
+    style_tag = html_soup.find('style')
+    if not style_tag:
+        return ""
+    
+    css = style_tag.text.strip()
+    # Find the content inside the body selector block, robustly.
+    match = re.search(r'body\s*\{(.*?)\}', css, re.DOTALL | re.IGNORECASE)
+    if match:
+        return match.group(1)
+    return ""
+
+
+def test_body_background_color_is_set_to_black_happy_path(html_soup):
+    """Verifies that the CSS rule specifically sets the body background to 'black'."""
+    css_rules = get_body_css_rules(html_soup)
+    # Check for exact 'background-color: black;' rule, ignoring whitespace
+    match = re.search(r'background-color:\s*black\s*;', css_rules, re.IGNORECASE)
+    assert match is not None, "Did not find 'background-color: black;' rule for the body."
+
+def test_body_text_color_is_set_to_white_for_contrast(html_soup):
+    """Verifies that the CSS rule sets the body text color to 'white' for readability contrast."""
+    css_rules = get_body_css_rules(html_soup)
+    # Check for exact 'color: white;' rule, ignoring whitespace
+    match = re.search(r'color:\s*white\s*;', css_rules, re.IGNORECASE)
+    assert match is not None, "Did not find 'color: white;' rule for the body."
+
+# --- Edge Cases and Robustness Tests ---
+
+def test_styles_use_named_colors_not_hex_codes(html_string):
+    """Ensures the implementation uses 'black' and 'white' as specified (though hex codes work, named colors were used)."""
+    assert 'background-color: black;' in html_string
+    assert 'color: white;' in html_string
+    # Negative check to ensure no conflicting hex codes (e.g., #000000 or #FFFFFF) are accidentally overriding
+    style_content = html_string.split('<style>')[1].split('</style>')[0]
+    assert '#000' not in style_content.lower()
+    assert '#fff' not in style_content.lower()
+
+def test_body_default_styles_are_included(html_soup):
+    """Verifies auxiliary styling (margin reset, font) is present."""
+    css_rules = get_body_css_rules(html_soup)
+    
+    # Check margin reset
+    margin_match = re.search(r'margin:\s*0\s*;', css_rules, re.IGNORECASE)
+    assert margin_match is not None, "Body margin reset 'margin: 0;' is missing."
+    
+    # Check padding definition
+    padding_match = re.search(r'padding:\s*20px\s*;', css_rules, re.IGNORECASE)
+    assert padding_match is not None, "Body padding definition 'padding: 20px;' is missing."
+    
+    # Check font family definition
+    font_match = re.search(r'font-family:\s*Arial,\s*sans-serif\s*;', css_rules, re.IGNORECASE)
+    assert font_match is not None, "Body font family definition is missing."
