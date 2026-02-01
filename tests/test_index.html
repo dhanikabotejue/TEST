@@ -1,0 +1,137 @@
+import pytest
+from bs4 import BeautifulSoup
+import re
+
+# Define the HTML content as a constant or global scope for fixtures
+HTML_CONTENT = """
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Orange Text Example</title>
+
+    <style>
+        body {
+            /* Set the default text color to orange */
+            color: orange;
+            font-family: Arial, sans-serif;
+            margin: 20px;
+        }
+    </style>
+</head>
+<body>
+    <!-- Main content container -->
+    <h1>Welcome to the Page</h1>
+    <p>This paragraph contains text that is rendered in orange, as defined by the CSS rules in the header.</p>
+</body>
+</html>
+"""
+
+@pytest.fixture
+def soup():
+    """Fixture to parse the HTML content using BeautifulSoup."""
+    return BeautifulSoup(HTML_CONTENT, 'html.parser')
+
+# --- Structural Tests (Happy Path) ---
+
+def test_document_is_well_formed_and_has_required_tags(soup):
+    """Verifies the basic HTML structure (html, head, body) is present."""
+    assert soup.find('html'), "HTML tag missing."
+    assert soup.find('head'), "HEAD tag missing."
+    assert soup.find('body'), "BODY tag missing."
+
+def test_page_title_is_correctly_set(soup):
+    """Verifies the metadata element <title> is correct."""
+    title = soup.find('title')
+    assert title is not None, "Title tag is missing."
+    assert title.string == "Orange Text Example", "Page title is incorrect."
+
+def test_css_style_tag_is_present_in_head(soup):
+    """Verifies the existence and placement of the <style> block."""
+    style_tag = soup.find('style')
+    assert style_tag is not None, "The <style> tag defining CSS is missing."
+    assert style_tag.parent.name == 'head', "The <style> tag should be placed in the <head>."
+
+# --- CSS Verification Tests (Intent Fulfillment) ---
+
+def test_body_selector_targets_orange_color(soup):
+    """
+    Verifies that the primary intent (color: orange;) is applied 
+    specifically to the 'body' selector.
+    """
+    style_tag = soup.find('style')
+    style_content = style_tag.string
+    assert style_content, "Style content is empty."
+
+    # Normalize content to handle newlines and indentation robustness
+    normalized_content = style_content.replace('\n', ' ').strip()
+    
+    # Regex to find 'body { ... color: orange; ... }'
+    pattern = re.compile(r'body\s*{[^}]*color\s*:\s*orange\s*;', re.DOTALL | re.IGNORECASE)
+    
+    assert pattern.search(normalized_content), (
+        "CSS rule 'color: orange;' not found or not correctly applied to the 'body' selector."
+    )
+
+def test_auxiliary_styles_font_and_margin_are_present(soup):
+    """
+    Verifies secondary, required CSS properties (font-family and margin) 
+    are correctly defined for the body.
+    """
+    style_content = soup.find('style').string
+    normalized_content = style_content.replace('\n', ' ').strip()
+    
+    # Check for font-family
+    font_pattern = re.compile(r'body\s*{[^}]*font-family\s*:\s*Arial,\s*sans-serif\s*;', re.DOTALL | re.IGNORECASE)
+    assert font_pattern.search(normalized_content), "Font-family rule missing or incorrect."
+
+    # Check for margin
+    margin_pattern = re.compile(r'body\s*{[^}]*margin\s*:\s*20px\s*;', re.DOTALL | re.IGNORECASE)
+    assert margin_pattern.search(normalized_content), "Margin rule missing or incorrect."
+
+# --- Content and Inheritance Tests ---
+
+def test_main_heading_is_present_and_inherits_color(soup):
+    """Verifies the <h1> tag exists and ensures no local override is present."""
+    h1 = soup.find('h1')
+    assert h1 is not None, "H1 heading is missing."
+    assert h1.parent.name == 'body', "H1 is not a child of the body."
+    
+    # Critical structural check: Ensures the color inheritance is not blocked by inline styles
+    assert 'style' not in h1.attrs, "H1 element has an unexpected inline style attribute that could override inheritance."
+
+def test_paragraph_text_is_present_and_inherits_color(soup):
+    """Verifies the <p> tag exists and ensures no local override is present."""
+    p = soup.find('p')
+    assert p is not None, "Paragraph tag is missing."
+    assert p.parent.name == 'body', "Paragraph is not a child of the body."
+    
+    # Critical structural check: Ensures the color inheritance is not blocked by inline styles
+    assert 'style' not in p.attrs, "Paragraph element has an unexpected inline style attribute that could override inheritance."
+
+# --- Edge Case / Robustness Tests ---
+
+def test_no_elements_contain_inline_styles(soup):
+    """
+    Ensures no element within the document uses the `style` attribute 
+    (a common source of accidental style overrides).
+    """
+    # This specifically checks for the existence of the `style="..."` attribute on any tag.
+    elements_with_inline_style = soup.find_all(style=re.compile(r'.*'))
+    
+    # We must ensure that only the <style> tag content is defining styles.
+    if elements_with_inline_style:
+        # Filter to ignore the <style> tag itself, focusing only on content elements
+        content_elements_with_inline = [
+            e for e in elements_with_inline_style if e.name != 'style'
+        ]
+        
+        assert not content_elements_with_inline, (
+            f"Found {len(content_elements_with_inline)} element(s) with unexpected inline style attributes, potentially overriding the orange color."
+        )
+
+def test_body_tag_itself_does_not_have_inline_style(soup):
+    """Ensures the color is defined via CSS block, not inline on the body tag."""
+    body = soup.find('body')
+    assert 'style' not in body.attrs, "The <body> tag should not have an inline style attribute, relying instead on the internal <style> block."
