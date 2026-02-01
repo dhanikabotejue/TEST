@@ -1,0 +1,127 @@
+import pytest
+from bs4 import BeautifulSoup
+import re
+
+# --- Fixtures ---
+
+@pytest.fixture
+def html_content():
+    """Provides the source code of the index.html file."""
+    return """
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Styled HTML Page</title>
+    
+    <!--
+      CSS Block: Applies global styling adjustments.
+      Intent: Change the default text color to dark blue.
+    -->
+    <style>
+        /*
+         * Target the body element to set the default foreground color
+         * for all textual content within the page.
+         * 'DarkBlue' is an accessible, well-defined color name corresponding to #00008B.
+         */
+        body {
+            color: DarkBlue;
+            font-family: Arial, sans-serif;
+            margin: 20px; /* Add slight margin for better readability */
+        }
+    </style>
+</head>
+<body>
+    <!-- Main content area -->
+    <h1>Welcome to the Page</h1>
+    <p>This paragraph demonstrates the dark blue text color applied via the internal style sheet in the head section.</p>
+    
+    <footer>
+        <p>This footer text is also rendered in dark blue.</p>
+    </footer>
+</body>
+</html>
+"""
+
+@pytest.fixture
+def soup(html_content):
+    """Parses the HTML content using BeautifulSoup for structural analysis."""
+    return BeautifulSoup(html_content, 'html.parser')
+
+@pytest.fixture
+def style_content(soup):
+    """Extracts the raw text content of the internal style block and normalizes whitespace."""
+    style_tag = soup.find('style')
+    if style_tag is None:
+        pytest.fail("The style tag is missing, preventing CSS application.")
+    
+    # Normalize whitespace for easier content checking
+    return re.sub(r'\s+', ' ', style_tag.string).strip()
+
+# --- Structural & Metadata Tests ---
+
+def test_html_document_is_well_formed(soup):
+    """Ensures the basic required structure (html, head, body) is present."""
+    assert soup.find('html') is not None
+    assert soup.find('head') is not None
+    assert soup.find('body') is not None
+
+def test_page_title_is_correct(soup):
+    """Verifies the page title matches expectations."""
+    title = soup.find('title')
+    assert title is not None
+    assert title.text == "Styled HTML Page"
+
+def test_required_metadata_is_present(soup):
+    """Checks for essential meta tags (charset and viewport)."""
+    meta_tags = soup.find_all('meta')
+    
+    charset_found = any('charset' in m.attrs and m.attrs.get('charset') == 'UTF-8' for m in meta_tags)
+    viewport_found = any('name' in m.attrs and m.attrs.get('name') == 'viewport' for m in meta_tags)
+    
+    assert charset_found, "UTF-8 charset meta tag is missing."
+    assert viewport_found, "Viewport meta tag is missing."
+
+# --- Core Functionality (CSS Application) Happy Path Tests ---
+
+def test_style_block_is_present_in_head(soup):
+    """Verifies that the internal style block exists within the head section."""
+    head = soup.find('head')
+    style_tag = head.find('style')
+    assert style_tag is not None, "The <style> tag must be located in the <head>."
+
+def test_body_selector_is_defined_in_css(style_content):
+    """Checks if the CSS targets the 'body' element to set the global style."""
+    # Look for 'body {' indicating the selector
+    assert re.search(r'body\s*{', style_content), "CSS definition for the 'body' selector is missing."
+
+def test_color_property_is_darkblue_for_intent(style_content):
+    """Verifies the primary intent: setting the default color to DarkBlue."""
+    assert 'color: DarkBlue;' in style_content, "The required 'color: DarkBlue;' property is not correctly defined in the body selector."
+
+# --- Secondary & Inheritance Verification Tests ---
+
+def test_font_family_is_applied(style_content):
+    """Checks for the secondary styling property (font-family) for completeness."""
+    assert 'font-family: Arial, sans-serif;' in style_content, "Required font-family property is missing."
+
+def test_margin_is_applied_to_body(style_content):
+    """Checks for the margin setting for better readability as defined."""
+    assert 'margin: 20px;' in style_content, "Required margin property is missing."
+
+def test_text_elements_exist_for_color_inheritance_check(soup):
+    """Ensures key text elements (h1, p, footer p) are present, which rely on the body's inherited color."""
+    assert soup.find('h1') is not None
+    # Check for content consistency (two paragraphs)
+    assert len(soup.find_all('p')) == 2
+    assert soup.find('footer') is not None
+
+def test_no_inline_styles_override_color(soup):
+    """
+    Edge case check: Ensure no conflicting inline styles are present 
+    on structural elements that might override the intended color inheritance.
+    """
+    overridable_elements = soup.find_all(['body', 'h1', 'p', 'footer'])
+    for element in overridable_elements:
+        assert 'style' not in element.attrs, f"Inline style found on <{element.name}> element, which must rely on inheritance."
